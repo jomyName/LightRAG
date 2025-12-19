@@ -1,5 +1,6 @@
 from __future__ import annotations
-
+import json
+import re
 import traceback
 import asyncio
 import configparser
@@ -4032,6 +4033,20 @@ class LightRAG:
             self.aexport_data(output_path, file_format, include_vector_data)
         )
 
+    # model_call
+    async def model_call(self, query, system_prompt, enable_cot=False, stream=False):
+        global_config = asdict(self)
+        using_llm = global_config["llm_model_func"]
+        res = await using_llm(
+            query.strip(),
+            system_prompt = system_prompt,
+            enable_cot=enable_cot,
+            stream=stream,
+        )
+        return res
+
+
+    # 重写查询
     async def rewrite_query(self, query):
         global_config = asdict(self)
         using_llm = global_config["llm_model_func"]
@@ -4048,10 +4063,12 @@ class LightRAG:
             system_prompt = PROMPTS["rewrite_query"],
             enable_cot=False
         )
+        print(res)
         parse_res = self.parse_json( self.extract_json_array_from_text(res) )
         rewrite_res = []
         for i in range(len(parse_res)):
             rewrite_res.append(parse_res[i]["Rewrite"])
+        return rewrite_res
     
     def extract_json_array_from_text(self, text):
         """

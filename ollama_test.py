@@ -121,12 +121,16 @@ async def main():
         # Initialize RAG instance
         rag = await initialize_rag()
 
-        # Example query
+        # 测试查询改写模块
         query = "发生火灾了怎么办"
         res = await rag.rewrite_query(query)
-        res = rag.extract_json_array_from_text(res)
-        
-        print(rag.parse_json(res))
+        print(res)
+
+
+        # 测试模型调用
+        # query = "发生火灾了怎么办"
+        # res = await rag.model_call(query, system_prompt="你是一个专业的助手")
+        # print(res)
         print("\n")
     except Exception as e:
         print(f"An error occurred: {e}")

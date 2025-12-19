@@ -27,6 +27,7 @@ import numpy as np
 from typing import Optional, Union
 from lightrag.utils import (
     wrap_embedding_func_with_attrs,
+    remove_think_tags,
     logger,
 )
 
@@ -119,7 +120,8 @@ async def _ollama_model_if_cache(
 
             return inner()
         else:
-            model_response = response["message"]["content"]
+            # 增加了移除think的功能
+            model_response = remove_think_tags(response["message"]["content"])
 
             """
             If the model also wraps its thoughts in a specific tag,
