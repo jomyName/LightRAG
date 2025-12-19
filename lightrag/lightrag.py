@@ -2440,7 +2440,7 @@ class LightRAG:
         #result = await self.aquery_llm(query, param, system_prompt)
 
         # 查询改写后的调用
-        raw_query, rewrite_list = self.rewrite_query(query)
+        raw_query, rewrite_list = await self.rewrite_query(query)
         result = await self.test_aquery_llm(raw_query, rewrite_list, param, system_prompt)
 
         # Extract and return only the LLM response for backward compatibility

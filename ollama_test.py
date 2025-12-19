@@ -131,22 +131,22 @@ async def main():
 
         #测试查询改写全流程功能
     try:
-        # Clear old data files
-        files_to_delete = [
-            "graph_chunk_entity_relation.graphml",
-            "kv_store_doc_status.json",
-            "kv_store_full_docs.json",
-            "kv_store_text_chunks.json",
-            "vdb_chunks.json",
-            "vdb_entities.json",
-            "vdb_relationships.json",
-        ]
+        # # Clear old data files
+        # files_to_delete = [
+        #     "graph_chunk_entity_relation.graphml",
+        #     "kv_store_doc_status.json",
+        #     "kv_store_full_docs.json",
+        #     "kv_store_text_chunks.json",
+        #     "vdb_chunks.json",
+        #     "vdb_entities.json",
+        #     "vdb_relationships.json",
+        # ]
 
-        for file in files_to_delete:
-            file_path = os.path.join(WORKING_DIR, file)
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                print(f"Deleting old file:: {file_path}")
+        # for file in files_to_delete:
+        #     file_path = os.path.join(WORKING_DIR, file)
+        #     if os.path.exists(file_path):
+        #         os.remove(file_path)
+        #         print(f"Deleting old file:: {file_path}")
 
         # Initialize RAG instance
         rag = await initialize_rag()
@@ -161,8 +161,8 @@ async def main():
         print(f"Test dict: {test_text}")
         print(f"Detected embedding dimension: {embedding_dim}\n\n")
 
-        with open("./book.txt", "r", encoding="utf-8") as f:
-            await rag.ainsert(f.read())
+        # with open("./book.txt", "r", encoding="utf-8") as f:
+        #     await rag.ainsert(f.read())
 
         # Perform naive search
         print("\n=====================")
