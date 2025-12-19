@@ -4031,3 +4031,56 @@ class LightRAG:
         loop.run_until_complete(
             self.aexport_data(output_path, file_format, include_vector_data)
         )
+
+    async def rewrite_query(self, query):
+        global_config = asdict(self)
+        using_llm = global_config["llm_model_func"]
+        #prompt = "Rewrite the following user query to be more precise and concise for knowledge graph retrieval:\n\n"
+        # response = await use_llm_func(
+        #             query.strip(),
+        #             system_prompt=system_prompt,
+        #             history_messages=param.conversation_history,
+        #             enable_cot=True,
+        #             stream=param.stream,
+        #         )
+        res = await using_llm(
+            query.strip(),
+            system_prompt = PROMPTS["rewrite_query"],
+            enable_cot=False
+        )
+        parse_res = self.parse_json( self.extract_json_array_from_text(res) )
+        rewrite_res = []
+        for i in range(len(parse_res)):
+            rewrite_res.append(parse_res[i]["Rewrite"])
+    
+    def extract_json_array_from_text(self, text):
+        """
+        从文本中提取JSON数组
+        """
+        # 方法1：查找第一个'['和最后一个']'之间的内容
+        start_idx = text.find('[')
+        end_idx = text.rfind(']')
+        
+        if start_idx == -1 or end_idx == -1:
+            # 如果没有找到方括号，尝试其他方法
+            # 比如查找包含"SubQ1"等关键词的JSON部分
+            pattern = r'\[.*"SubQ1".*\]'
+            match = re.search(pattern, text, re.DOTALL)
+            if match:
+                return match.group(0)
+            else:
+                raise ValueError("未找到JSON数组")
+        
+        # 提取JSON字符串
+        json_str = text[start_idx:end_idx + 1]
+        return json_str
+    
+    def parse_json(self, json_str):
+        """
+        解析JSON字符串为Python对象
+        """
+        try:
+            data = json.loads(json_str)
+            return data
+        except json.JSONDecodeError as e:
+            raise ValueError(f"JSON解析错误: {e}")
