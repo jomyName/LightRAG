@@ -5000,3 +5000,230 @@ async def naive_query(
         return QueryResult(
             response_iterator=response, raw_data=raw_data, is_streaming=True
         )
+
+# 改写kg查询，能够批量查询多个query
+async def test_kg_query(
+    raw_query: str,
+    query: list[str],
+    knowledge_graph_inst: BaseGraphStorage,
+    entities_vdb: BaseVectorStorage,
+    relationships_vdb: BaseVectorStorage,
+    text_chunks_db: BaseKVStorage,
+    query_param: QueryParam,
+    global_config: dict[str, str],
+    hashing_kv: BaseKVStorage | None = None,
+    system_prompt: str | None = None,
+    chunks_vdb: BaseVectorStorage = None,
+) -> QueryResult | None:
+    """
+    Execute knowledge graph query and return unified QueryResult object.
+
+    Args:
+        query: Query string
+        knowledge_graph_inst: Knowledge graph storage instance
+        entities_vdb: Entity vector database
+        relationships_vdb: Relationship vector database
+        text_chunks_db: Text chunks storage
+        query_param: Query parameters
+        global_config: Global configuration
+        hashing_kv: Cache storage
+        system_prompt: System prompt
+        chunks_vdb: Document chunks vector database
+
+    Returns:
+        QueryResult | None: Unified query result object containing:
+            - content: Non-streaming response text content
+            - response_iterator: Streaming response iterator
+            - raw_data: Complete structured data (including references and metadata)
+            - is_streaming: Whether this is a streaming result
+
+        Based on different query_param settings, different fields will be populated:
+        - only_need_context=True: content contains context string
+        - only_need_prompt=True: content contains complete prompt
+        - stream=True: response_iterator contains streaming response, raw_data contains complete data
+        - default: content contains LLM response text, raw_data contains complete data
+
+        Returns None when no relevant context could be constructed for the query.
+    """
+    if not query:
+        return QueryResult(content=PROMPTS["fail_response"])
+
+    if query_param.model_func:
+        use_model_func = query_param.model_func
+    else:
+        use_model_func = global_config["llm_model_func"]
+        # Apply higher priority (5) to query relation LLM function
+        use_model_func = partial(use_model_func, _priority=5)
+    # 批量查询关键词，每个子问题分别提取关键词
+    hl_keywords = []
+    ll_keywords = []
+    for q in query:
+        hl_keywords_, ll_keywords_ = await get_keywords_from_query(
+            q, query_param, global_config, hashing_kv
+        )
+        hl_keywords.append(hl_keywords_)
+        ll_keywords.append(ll_keywords_)
+    
+    # 或者单一次查询
+    # 增加query_str
+    # query_str = ", ".join(query) if len(query) > 1 else query[0]
+    # hl_keywords_, ll_keywords_ = await get_keywords_from_query(
+    #         query_str, query_param, global_config, hashing_kv
+    #     )
+
+    logger.debug(f"High-level keywords: {hl_keywords}")
+    logger.debug(f"Low-level  keywords: {ll_keywords}")
+
+    # Handle empty keywords
+    if ll_keywords == [] and query_param.mode in ["local", "hybrid", "mix"]:
+        logger.warning("low_level_keywords is empty")
+    if hl_keywords == [] and query_param.mode in ["global", "hybrid", "mix"]:
+        logger.warning("high_level_keywords is empty")
+    if hl_keywords == [] and ll_keywords == []:
+        if len(query) < 50:
+            logger.warning(f"Forced low_level_keywords to origin query: {query}")
+            ll_keywords = ["".join(q) for q in query]
+        else:
+            return QueryResult(content=PROMPTS["fail_response"])
+  
+    ll_keywords_str = ", ".join(ll_keywords) if ll_keywords else ""
+    hl_keywords_str = ", ".join(hl_keywords) if hl_keywords else ""
+
+
+    # Build query context (unified interface)  这里用了原始的query_str作为查询上下文
+    context_result = await _build_query_context(
+        raw_query,
+        ll_keywords_str,
+        hl_keywords_str,
+        knowledge_graph_inst,
+        entities_vdb,
+        relationships_vdb,
+        text_chunks_db,
+        query_param,
+        chunks_vdb,
+    )
+
+    if context_result is None:
+        logger.info("[kg_query] No query context could be built; returning no-result.")
+        return None
+
+    # Return different content based on query parameters
+    if query_param.only_need_context and not query_param.only_need_prompt:
+        return QueryResult(
+            content=context_result.context, raw_data=context_result.raw_data
+        )
+
+    user_prompt = f"\n\n{query_param.user_prompt}" if query_param.user_prompt else "n/a"
+    response_type = (
+        query_param.response_type
+        if query_param.response_type
+        else "Multiple Paragraphs"
+    )
+
+    # Build system prompt
+    sys_prompt_temp = system_prompt if system_prompt else PROMPTS["rag_response"]
+    sys_prompt = sys_prompt_temp.format(
+        response_type=response_type,
+        user_prompt=user_prompt,
+        context_data=context_result.context,
+    )
+    # 合并的子问题，或者是需要原始的问题以及改写后的全部子问题
+    user_query = raw_query
+
+    if query_param.only_need_prompt:
+        prompt_content = "\n\n".join([sys_prompt, "---User Query---", user_query])
+        return QueryResult(content=prompt_content, raw_data=context_result.raw_data)
+
+    # Call LLM
+    tokenizer: Tokenizer = global_config["tokenizer"]
+    len_of_prompts = len(tokenizer.encode(query + sys_prompt))
+    logger.debug(
+        f"[kg_query] Sending to LLM: {len_of_prompts:,} tokens (Query: {len(tokenizer.encode(query))}, System: {len(tokenizer.encode(sys_prompt))})"
+    )
+    
+    # 截取raw_query中 从“原始问题：”到“查询改写：”两个字符串之间的内容
+    hash_query = raw_query.split("原始问题：")[1].split("查询改写：")[0].strip()
+
+    # Handle cache
+    args_hash = compute_args_hash(
+        query_param.mode,
+        hash_query,
+        query_param.response_type,
+        query_param.top_k,
+        query_param.chunk_top_k,
+        query_param.max_entity_tokens,
+        query_param.max_relation_tokens,
+        query_param.max_total_tokens,
+        hl_keywords_str,
+        ll_keywords_str,
+        query_param.user_prompt or "",
+        query_param.enable_rerank,
+    )
+
+    cached_result = await handle_cache(
+        hashing_kv, args_hash, user_query, query_param.mode, cache_type="query"
+    )
+
+    if cached_result is not None:
+        cached_response, _ = cached_result  # Extract content, ignore timestamp
+        logger.info(
+            " == LLM cache == Query cache hit, using cached response as query result"
+        )
+        response = cached_response
+    else:
+        response = await use_model_func(
+            user_query,
+            system_prompt=sys_prompt,
+            history_messages=query_param.conversation_history,
+            enable_cot=True,
+            stream=query_param.stream,
+        )
+
+        if hashing_kv and hashing_kv.global_config.get("enable_llm_cache"):
+            queryparam_dict = {
+                "mode": query_param.mode,
+                "response_type": query_param.response_type,
+                "top_k": query_param.top_k,
+                "chunk_top_k": query_param.chunk_top_k,
+                "max_entity_tokens": query_param.max_entity_tokens,
+                "max_relation_tokens": query_param.max_relation_tokens,
+                "max_total_tokens": query_param.max_total_tokens,
+                "hl_keywords": hl_keywords_str,
+                "ll_keywords": ll_keywords_str,
+                "user_prompt": query_param.user_prompt or "",
+                "enable_rerank": query_param.enable_rerank,
+            }
+            await save_to_cache(
+                hashing_kv,
+                CacheData(
+                    args_hash=args_hash,
+                    content=response,
+                    prompt=query,
+                    mode=query_param.mode,
+                    cache_type="query",
+                    queryparam=queryparam_dict,
+                ),
+            )
+
+    # Return unified result based on actual response type
+    if isinstance(response, str):
+        # Non-streaming response (string)
+        if len(response) > len(sys_prompt):
+            response = (
+                response.replace(sys_prompt, "")
+                .replace("user", "")
+                .replace("model", "")
+                .replace(query, "")
+                .replace("<system>", "")
+                .replace("</system>", "")
+                .strip()
+            )
+
+        return QueryResult(content=response, raw_data=context_result.raw_data)
+    else:
+        # Streaming response (AsyncIterator)
+        return QueryResult(
+            response_iterator=response,
+            raw_data=context_result.raw_data,
+            is_streaming=True,
+        )

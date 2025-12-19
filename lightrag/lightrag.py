@@ -91,6 +91,7 @@ from lightrag.operate import (
     extract_entities,
     merge_nodes_and_edges,
     kg_query,
+    test_kg_query,
     naive_query,
     rebuild_knowledge_from_chunks,
 )
@@ -2434,8 +2435,13 @@ class LightRAG:
                 - Non-streaming: Returns str
                 - Streaming: Returns AsyncIterator[str]
         """
+        # 入口1
         # Call the new aquery_llm function to get complete results
-        result = await self.aquery_llm(query, param, system_prompt)
+        #result = await self.aquery_llm(query, param, system_prompt)
+
+        # 查询改写后的调用
+        raw_query, rewrite_list = self.rewrite_query(query)
+        result = await self.test_aquery_llm(raw_query, rewrite_list, param, system_prompt)
 
         # Extract and return only the LLM response for backward compatibility
         llm_response = result.get("llm_response", {})
@@ -2699,7 +2705,7 @@ class LightRAG:
 
         try:
             query_result = None
-
+            
             if param.mode in ["local", "global", "hybrid", "mix"]:
                 query_result = await kg_query(
                     query.strip(),
@@ -4063,12 +4069,14 @@ class LightRAG:
             system_prompt = PROMPTS["rewrite_query"],
             enable_cot=False
         )
-        print(res)
+        # 作为问题输入
+        raw_query = """原始问题：""" + query.strip() + """\n查询改写：""" + res.strip()
+
         parse_res = self.parse_json( self.extract_json_array_from_text(res) )
         rewrite_res = []
         for i in range(len(parse_res)):
             rewrite_res.append(parse_res[i]["Rewrite"])
-        return rewrite_res
+        return raw_query, rewrite_res
     
     def extract_json_array_from_text(self, text):
         """
@@ -4101,3 +4109,145 @@ class LightRAG:
             return data
         except json.JSONDecodeError as e:
             raise ValueError(f"JSON解析错误: {e}")
+
+
+# 改写一个查询调用函数, 入口3
+    async def test_aquery_llm(
+        self,
+        raw_query: str,
+        query: list[str],
+        param: QueryParam = QueryParam(),
+        system_prompt: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Asynchronous complete query API: returns structured retrieval results with LLM generation.
+
+        This function performs a single query operation and returns both structured data and LLM response,
+        based on the original aquery logic to avoid duplicate calls.
+
+        Args:
+            query: Query text for retrieval and LLM generation.
+            param: Query parameters controlling retrieval and LLM behavior.
+            system_prompt: Optional custom system prompt for LLM generation.
+
+        Returns:
+            dict[str, Any]: Complete response with structured data and LLM response.
+        """
+        logger.debug(f"[aquery_llm] Query param: {param}")
+
+        global_config = asdict(self)
+
+        try:
+            query_result = None
+            # 查询入口2
+            if param.mode in ["local", "global", "hybrid", "mix"]:
+                query_result = await test_kg_query(
+                    raw_query,
+                    query.strip(),
+                    self.chunk_entity_relation_graph,
+                    self.entities_vdb,
+                    self.relationships_vdb,
+                    self.text_chunks,
+                    param,
+                    global_config,
+                    hashing_kv=self.llm_response_cache,
+                    system_prompt=system_prompt,
+                    chunks_vdb=self.chunks_vdb,
+                )
+            elif param.mode == "naive":
+                query_result = await naive_query(
+                    query.strip(),
+                    self.chunks_vdb,
+                    param,
+                    global_config,
+                    hashing_kv=self.llm_response_cache,
+                    system_prompt=system_prompt,
+                )
+            elif param.mode == "bypass":
+                # Bypass mode: directly use LLM without knowledge retrieval
+                use_llm_func = param.model_func or global_config["llm_model_func"]
+                # Apply higher priority (8) to entity/relation summary tasks
+                use_llm_func = partial(use_llm_func, _priority=8)
+
+                param.stream = True if param.stream is None else param.stream
+                response = await use_llm_func(
+                    query.strip(),
+                    system_prompt=system_prompt,
+                    history_messages=param.conversation_history,
+                    enable_cot=True,
+                    stream=param.stream,
+                )
+                if type(response) is str:
+                    return {
+                        "status": "success",
+                        "message": "Bypass mode LLM non streaming response",
+                        "data": {},
+                        "metadata": {},
+                        "llm_response": {
+                            "content": response,
+                            "response_iterator": None,
+                            "is_streaming": False,
+                        },
+                    }
+                else:
+                    return {
+                        "status": "success",
+                        "message": "Bypass mode LLM streaming response",
+                        "data": {},
+                        "metadata": {},
+                        "llm_response": {
+                            "content": None,
+                            "response_iterator": response,
+                            "is_streaming": True,
+                        },
+                    }
+            else:
+                raise ValueError(f"Unknown mode {param.mode}")
+
+            await self._query_done()
+
+            # Check if query_result is None
+            if query_result is None:
+                return {
+                    "status": "failure",
+                    "message": "Query returned no results",
+                    "data": {},
+                    "metadata": {
+                        "failure_reason": "no_results",
+                        "mode": param.mode,
+                    },
+                    "llm_response": {
+                        "content": PROMPTS["fail_response"],
+                        "response_iterator": None,
+                        "is_streaming": False,
+                    },
+                }
+
+            # Extract structured data from query result
+            raw_data = query_result.raw_data or {}
+            raw_data["llm_response"] = {
+                "content": query_result.content
+                if not query_result.is_streaming
+                else None,
+                "response_iterator": query_result.response_iterator
+                if query_result.is_streaming
+                else None,
+                "is_streaming": query_result.is_streaming,
+            }
+
+            return raw_data
+
+        except Exception as e:
+            logger.error(f"Query failed: {e}")
+            # Return error response
+            return {
+                "status": "failure",
+                "message": f"Query failed: {str(e)}",
+                "data": {},
+                "metadata": {},
+                "llm_response": {
+                    "content": None,
+                    "response_iterator": None,
+                    "is_streaming": False,
+                },
+            }

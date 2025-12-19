@@ -67,6 +67,9 @@ async def _ollama_model_if_cache(
     enable_cot: bool = False,
     **kwargs,
 ) -> Union[str, AsyncIterator[str]]:
+    
+    # 当 enable_cot 为 True 时，Ollama 后端暂不支持链式思维（Chain-of-Thought）功能，
+    # 因此记录调试日志并忽略该参数，避免调用方误以为已生效
     if enable_cot:
         logger.debug("enable_cot=True is not supported for ollama and will be ignored.")
     stream = True if kwargs.get("stream") else False

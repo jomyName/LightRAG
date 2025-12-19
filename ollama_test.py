@@ -116,22 +116,81 @@ async def print_stream(stream):
 
 
 async def main():
-    try:
-
+    # try:
         # Initialize RAG instance
-        rag = await initialize_rag()
+        # rag = await initialize_rag()
 
         # 测试查询改写模块
-        query = "发生火灾了怎么办"
-        res = await rag.rewrite_query(query)
-        print(res)
-
-
+        # query = "发生火灾了怎么办"
+        # res = await rag.rewrite_query(query)
+        # print(res)
         # 测试模型调用
         # query = "发生火灾了怎么办"
         # res = await rag.model_call(query, system_prompt="你是一个专业的助手")
         # print(res)
-        print("\n")
+
+        #测试查询改写全流程功能
+    try:
+        # Clear old data files
+        files_to_delete = [
+            "graph_chunk_entity_relation.graphml",
+            "kv_store_doc_status.json",
+            "kv_store_full_docs.json",
+            "kv_store_text_chunks.json",
+            "vdb_chunks.json",
+            "vdb_entities.json",
+            "vdb_relationships.json",
+        ]
+
+        for file in files_to_delete:
+            file_path = os.path.join(WORKING_DIR, file)
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                print(f"Deleting old file:: {file_path}")
+
+        # Initialize RAG instance
+        rag = await initialize_rag()
+
+        # Test embedding function
+        test_text = ["This is a test string for embedding."]
+        embedding = await rag.embedding_func(test_text)
+        embedding_dim = embedding.shape[1]
+        print("\n=======================")
+        print("Test embedding function")
+        print("========================")
+        print(f"Test dict: {test_text}")
+        print(f"Detected embedding dimension: {embedding_dim}\n\n")
+
+        with open("./book.txt", "r", encoding="utf-8") as f:
+            await rag.ainsert(f.read())
+
+        # Perform naive search
+        print("\n=====================")
+        print("Query mode: naive")
+        print("=====================")
+        resp = await rag.aquery(
+            "What are the top themes in this story?",
+            param=QueryParam(mode="naive", stream=True),
+        )
+        if inspect.isasyncgen(resp):
+            await print_stream(resp)
+        else:
+            print(resp)
+
+        # Perform local search
+        print("\n=====================")
+        print("Query mode: local")
+        print("=====================")
+        resp = await rag.aquery(
+            "What are the top themes in this story?",
+            param=QueryParam(mode="local", stream=True),
+        )
+        if inspect.isasyncgen(resp):
+            await print_stream(resp)
+        else:
+            print(resp)
+
+        
     except Exception as e:
         print(f"An error occurred: {e}")
     finally:
