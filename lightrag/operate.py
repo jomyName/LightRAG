@@ -5001,10 +5001,9 @@ async def naive_query(
             response_iterator=response, raw_data=raw_data, is_streaming=True
         )
 
-# 改写kg查询，能够批量查询多个query
 async def test_kg_query(
-    raw_query: str,
-    query: list[str],
+    query: str,
+    query_list: list[str],
     knowledge_graph_inst: BaseGraphStorage,
     entities_vdb: BaseVectorStorage,
     relationships_vdb: BaseVectorStorage,
@@ -5054,22 +5053,10 @@ async def test_kg_query(
         use_model_func = global_config["llm_model_func"]
         # Apply higher priority (5) to query relation LLM function
         use_model_func = partial(use_model_func, _priority=5)
-    # 批量查询关键词，每个子问题分别提取关键词
-    hl_keywords = []
-    ll_keywords = []
-    for q in query:
-        hl_keywords_, ll_keywords_ = await get_keywords_from_query(
-            q, query_param, global_config, hashing_kv
-        )
-        hl_keywords.append(hl_keywords_)
-        ll_keywords.append(ll_keywords_)
-    
-    # 或者单一次查询
-    # 增加query_str
-    # query_str = ", ".join(query) if len(query) > 1 else query[0]
-    # hl_keywords_, ll_keywords_ = await get_keywords_from_query(
-    #         query_str, query_param, global_config, hashing_kv
-    #     )
+
+    hl_keywords, ll_keywords = await get_keywords_from_query(
+        query, query_param, global_config, hashing_kv
+    )
 
     logger.debug(f"High-level keywords: {hl_keywords}")
     logger.debug(f"Low-level  keywords: {ll_keywords}")
@@ -5082,17 +5069,16 @@ async def test_kg_query(
     if hl_keywords == [] and ll_keywords == []:
         if len(query) < 50:
             logger.warning(f"Forced low_level_keywords to origin query: {query}")
-            ll_keywords = ["".join(q) for q in query]
+            ll_keywords = [query]
         else:
             return QueryResult(content=PROMPTS["fail_response"])
-  
+
     ll_keywords_str = ", ".join(ll_keywords) if ll_keywords else ""
     hl_keywords_str = ", ".join(hl_keywords) if hl_keywords else ""
 
-
-    # Build query context (unified interface)  这里用了原始的query_str作为查询上下文
+    # Build query context (unified interface)
     context_result = await _build_query_context(
-        raw_query,
+        query,
         ll_keywords_str,
         hl_keywords_str,
         knowledge_graph_inst,
@@ -5127,8 +5113,16 @@ async def test_kg_query(
         user_prompt=user_prompt,
         context_data=context_result.context,
     )
-    # 合并的子问题，或者是需要原始的问题以及改写后的全部子问题
-    user_query = raw_query
+
+    user_query = query.split("原始问题：")[1].split("查询改写：")[0].strip()
+
+    # 对各种字符串进行验证
+    print(" --- user_query ---")
+    print(user_query)
+    print(" --- query ---")
+    print(query)
+    print(" --- sys_prompt ---")
+    print(sys_prompt)
 
     if query_param.only_need_prompt:
         prompt_content = "\n\n".join([sys_prompt, "---User Query---", user_query])
@@ -5140,14 +5134,11 @@ async def test_kg_query(
     logger.debug(
         f"[kg_query] Sending to LLM: {len_of_prompts:,} tokens (Query: {len(tokenizer.encode(query))}, System: {len(tokenizer.encode(sys_prompt))})"
     )
-    
-    # 截取raw_query中 从“原始问题：”到“查询改写：”两个字符串之间的内容
-    hash_query = raw_query.split("原始问题：")[1].split("查询改写：")[0].strip()
 
     # Handle cache
     args_hash = compute_args_hash(
         query_param.mode,
-        hash_query,
+        query,
         query_param.response_type,
         query_param.top_k,
         query_param.chunk_top_k,
@@ -5172,7 +5163,7 @@ async def test_kg_query(
         response = cached_response
     else:
         response = await use_model_func(
-            user_query,
+            query,
             system_prompt=sys_prompt,
             history_messages=query_param.conversation_history,
             enable_cot=True,
@@ -5198,7 +5189,7 @@ async def test_kg_query(
                 CacheData(
                     args_hash=args_hash,
                     content=response,
-                    prompt=query,
+                    prompt=user_query,
                     mode=query_param.mode,
                     cache_type="query",
                     queryparam=queryparam_dict,

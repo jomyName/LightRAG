@@ -165,33 +165,30 @@ async def main():
         #     await rag.ainsert(f.read())
 
         # Perform naive search
-        print("\n=====================")
-        print("Query mode: naive")
-        print("=====================")
-        resp = await rag.aquery(
-            "What are the top themes in this story?",
-            param=QueryParam(mode="naive", stream=True),
-        )
-        if inspect.isasyncgen(resp):
-            await print_stream(resp)
-        else:
-            print(resp)
+        # print("\n=====================")
+        # print("Query mode: naive")
+        # print("=====================")
+        # resp = await rag.aquery(
+        #     "What are the top themes in this story?",
+        #     param=QueryParam(mode="naive", stream=True),
+        # )
+        # if inspect.isasyncgen(resp):
+        #     await print_stream(resp)
+        # else:
+        #     print(resp)
 
         # Perform local search
         print("\n=====================")
         print("Query mode: local")
         print("=====================")
         resp = await rag.aquery(
-            "What are the top themes in this story?",
+            "三打白骨精这个故事讲了什么？",
             param=QueryParam(mode="local", stream=True),
         )
         if inspect.isasyncgen(resp):
             await print_stream(resp)
         else:
             print(resp)
-
-
-        # 测试
         
     except Exception as e:
         print(f"An error occurred: {e}")

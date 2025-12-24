@@ -4143,7 +4143,7 @@ class LightRAG:
             if param.mode in ["local", "global", "hybrid", "mix"]:
                 query_result = await test_kg_query(
                     raw_query,
-                    query.strip(),
+                    query,
                     self.chunk_entity_relation_graph,
                     self.entities_vdb,
                     self.relationships_vdb,
