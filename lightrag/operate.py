@@ -5117,15 +5117,15 @@ async def test_kg_query(
     user_query = query.split("原始问题：")[1].split("查询改写：")[0].strip()
 
     # 对各种字符串进行验证
-    print(" --- user_query ---")
-    print(user_query)
-    print(" --- query ---")
-    print(query)
-    print(" --- sys_prompt ---")
-    print(sys_prompt)
+    # print(" --- user_query ---")
+    # print(user_query)
+    # print(" --- query ---")
+    # print(query)
+    # print(" --- sys_prompt ---")
+    # print(sys_prompt)
 
     if query_param.only_need_prompt:
-        prompt_content = "\n\n".join([sys_prompt, "---User Query---", user_query])
+        prompt_content = "\n\n".join([sys_prompt, "---User Query---", user_query, "---rewrite Query---", query])
         return QueryResult(content=prompt_content, raw_data=context_result.raw_data)
 
     # Call LLM

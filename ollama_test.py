@@ -183,7 +183,7 @@ async def main():
         print("=====================")
         resp = await rag.aquery(
             "三打白骨精这个故事讲了什么？",
-            param=QueryParam(mode="local", stream=True),
+            param=QueryParam(mode="local", stream=True, only_need_prompt = True),
         )
         if inspect.isasyncgen(resp):
             await print_stream(resp)

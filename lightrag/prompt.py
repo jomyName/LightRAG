@@ -445,3 +445,16 @@ PROMPTS["rewrite_query"] = """
 ]
 
 """
+
+PROMPTS["DEFAULT_ENTITY_TYPES"] = ["organization", "person", "geo", "event", "category", "safety_term", "monitoring_equipment", "accident_case", "emergency_measure", "safety_standard", 
+    "organization: 识别燃气安全相关的组织机构，包括燃气公司、应急管理部门、监管部门、救援队伍、事故处置单位等。",
+    "person: 识别涉及燃气安全的人员，如安全专家、操作人员、事故责任人、应急救援人员、受害者等。",
+    "geo: 识别地理位置信息，包括事故发生地点、燃气设施位置、行政区域、具体地址等。",
+    "event: 识别燃气安全相关的事件，包括事故、演练、检查活动等具有时间性的活动。",
+    "category: 识别分类信息，如燃气设备类型、事故等级、风险类别等通用分类概念。",
+    "safety_term: 识别燃气安全专业术语，包括技术名词、安全概念、规范用语等专业知识词汇。",
+    "monitoring_equipment: 识别监测设备和仪器，包括燃气报警器、检测仪器、安全装置等设备名称和技术参数。",
+    "accident_case: 识别具体事故案例，包含事故时间、地点、原因、后果等完整的事故描述信息。",
+    "emergency_measure: 识别应急措施和方法，包括预防措施、应急预案、处置方法、恢复方案等具体操作步骤。",
+    "safety_standard: 识别安全标准和规范，包括国家标准、行业规范、操作规程等技术标准内容。"
+    "识别过程中，对具体的perso，geo等信息进行泛化。"]
