@@ -4080,7 +4080,7 @@ async def _build_query_context(
         query_param,
         chunks_vdb,
     )
-
+    
     if not search_result["final_entities"] and not search_result["final_relations"]:
         if query_param.mode != "mix":
             return None
@@ -5089,6 +5089,17 @@ async def test_kg_query(
         chunks_vdb,
     )
 
+    # 在这里对知识图谱的结果进行后处理
+    # 提取context_result中的context字段,提取context文本中Document Chunks之前的所有文字
+    context_enti = context_result.context.split("Document Chunks")[0].strip()
+    context_text = context_result.context.split("Document Chunks")[1].strip()
+    # 对context_enti进行大模型调用，进行过滤和构造
+    filtered_enti = await use_model_func(
+        PROMPTS["graph_filtering_consolidation"].format(问题文本=query,实体关系数据=context_enti,)
+    )
+    context_result.context = filtered_enti + "\n\n" + context_text
+    
+
     if context_result is None:
         logger.info("[kg_query] No query context could be built; returning no-result.")
         return None
@@ -5116,13 +5127,6 @@ async def test_kg_query(
 
     user_query = query.split("原始问题：")[1].split("查询改写：")[0].strip()
 
-    # 对各种字符串进行验证
-    # print(" --- user_query ---")
-    # print(user_query)
-    # print(" --- query ---")
-    # print(query)
-    # print(" --- sys_prompt ---")
-    # print(sys_prompt)
 
     if query_param.only_need_prompt:
         prompt_content = "\n\n".join([sys_prompt, "---User Query---", user_query, "---rewrite Query---", query])
